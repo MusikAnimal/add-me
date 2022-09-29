@@ -1,0 +1,7 @@
+{
+    "extends": [
+        "wikimedia/client-es6",
+        "wikimedia/mediawiki",
+        "wikimedia/jquery"
+    ]
+}
