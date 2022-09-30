@@ -27,8 +27,8 @@ class AddMe {
 		this.config = {
 			// Which page to post the comment to. If null, it uses the current page.
 			'page': null,
-			// Which section of the page to post the comment to.
-			'section-header': null,
+			// The anchor of the section of the page to post the comment to.
+			'section-anchor': null,
 			// Maximum level of section to process; used to help prevent putting comments in the wrong
 			//   place if there are multiple sections with the same title.
 			'max-section-level': null,
@@ -36,7 +36,7 @@ class AddMe {
 			'prepend-template': null,
 			// Regular expression used to removed unwanted content from the comment (such as a {{support}} template).
 			'remove-content-regex': null,
-			// Where to link to when there are (rare) fatal errors with the gadget. Normally should not be overridden.
+			// Where to link to when there are unrecoverable errors with the gadget or its configuration.
 			// FIXME: this hasn't been implemented yet; idea was to add a "Report" button to showError()
 			'error-report-page': 'Meta talk:AddMe',
 		};
@@ -135,6 +135,14 @@ class AddMe {
 		return dfd;
 	}
 
+	/**
+	 * The content model of the messages page is wikitext so that it can be used with Extension:Translate.
+	 * Consequently, it's easy to break things. This just does a try/catch and indicates the likely culprit.
+	 *
+	 * @param title
+	 * @param content
+	 * @return {object}
+	 */
 	parseJSON( title, content ) {
 		try {
 			return JSON.parse( content );
@@ -221,46 +229,75 @@ class AddMe {
 			comment = comment.replace( new RegExp( this.config['remove-content-regex'] ), '' ).trim();
 		}
 
-		if ( this.config['section-header'] ) {
-			this.api.get( {
-				format: 'json',
-				action: 'parse',
-				prop: 'sections',
-				page: this.config.page,
-				// FIXME: may not work if the content language is not 'en'?
-				uselang: 'en',
-			} ).then( result => {
-				const sections = result.parse.sections;
-				let sectionCount = 0,
-					sectionFound = false;
-				debugger;
-
-				sections.forEach( ( section ) => {
-					if ( section.level > this.config['max-section-level'] ) {
-						return;
-					}
-					if ( section.anchor === this.config['section-header'] ) {
-
-					}
-				} );
-				dfd.resolve();
-			} ).fail( ( errCode ) => {
-				let debugMsg = `The server returned an error when fetching section titles for [[${this.config.page}]].`,
-					msg = 'error-save',
-					recoverable = true;
-
-				if ( errCode === 'missingtitle' ) {
-					debugMsg = `The page [[${this.config.page}]] is missing.`;
-					msg = 'error-fatal';
-					recoverable = false;
-				}
-
-				this.log( debugMsg );
-				return dfd.reject(
-					new OO.ui.Error( this.messages[msg], { recoverable } )
-				);
-			} );
+		if ( this.config['section-anchor'] ) {
+			this.findSection()
+				.done( dfd.resolve )
+				.fail( dfd.reject );
 		}
+
+		return dfd;
+	}
+
+	/**
+	 * Fetch section headers from this.page, and locate the one we're trying to edit.
+	 * If no section header constraint is configured, we assume the final section.
+	 * If a section header is configured but not found, an error is shown to the user.
+	 *
+	 * @return {JQueryDeferred}
+	 */
+	findSection() {
+		const dfd = $.Deferred();
+
+		this.api.get( {
+			format: 'json',
+			formatversion: 2,
+			action: 'parse',
+			prop: 'sections',
+			page: this.config.page,
+			// FIXME: may not work if the source language page is not '/en'?
+			uselang: 'en',
+		} ).then( result => {
+			const sections = result.parse.sections;
+			// Locate the section we're trying to edit.
+			let section;
+			if ( this.config['section-anchor'] ) {
+				section = sections.find( ( section ) => {
+					const withinMaxLevel = this.config['max-section-level'] ?
+						section.toclevel <= this.config['max-section-level'] :
+						true;
+					return section.anchor === this.config['section-anchor'] && withinMaxLevel
+				});
+
+				if ( !section ) {
+					return dfd.reject(
+						new OO.ui.Error(
+							`The "${this.config['section-anchor']}" section is missing from [[${this.config.page}]]. ` +
+							`Please correct this error or report this issue at [[${this.config['error-report-page']}]].`,
+							{ recoverable: false }
+						)
+					);
+				}
+			} else {
+				section = sections.at( -1 );
+			}
+
+			dfd.resolve( section );
+		} ).fail( ( errCode ) => {
+			let debugMsg = `There was an error when fetching section titles for [[${this.config.page}]].`,
+				msg = 'error-save',
+				recoverable = true;
+
+			if ( errCode === 'missingtitle' ) {
+				debugMsg = `The page [[${this.config.page}]] is missing.`;
+				msg = 'error-fatal';
+				recoverable = false;
+			}
+
+			this.log( debugMsg );
+			return dfd.reject(
+				new OO.ui.Error( this.messages[msg], { recoverable } )
+			);
+		} );
 
 		return dfd;
 	}
