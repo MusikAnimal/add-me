@@ -24,7 +24,6 @@ class AddMe {
 		}
 
 		this.$content = $content;
-		this.debugMode = window.AddMeDebug;
 		this.api = new mw.Api();
 		this.project = null;
 		this.config = {
@@ -62,6 +61,11 @@ class AddMe {
 			this.fetchConfig()
 				.then( this.showDialog.bind( this ) )
 				.fail( this.showAlert.bind( this ) );
+
+			// Lazy-load postEdit module (only shown on desktop).
+			if ( !OO.ui.isMobile() ) {
+				mw.loader.using( 'mediawiki.action.view.postEdit' );
+			}
 		} );
 	}
 
@@ -71,7 +75,6 @@ class AddMe {
 	 * @returns {JQueryDeferred}
 	 */
 	fetchConfig() {
-		this.debug('fetchConsole()');
 		const dfd = $.Deferred();
 
 		if ( this.messages && this.config.page ) {
@@ -100,7 +103,6 @@ class AddMe {
 			format: 'json',
 			formatversion: 2,
 		} ).then( ( resp ) => {
-			this.debug('fetchConsole then()');
 			let messagesLocal = {},
 				messagesEn = {};
 
@@ -167,7 +169,6 @@ class AddMe {
 	 * Show the submission dialog.
 	 */
 	showDialog() {
-		this.debug('showDialog()');
 		const that = this;
 		const Dialog = function() {
 			Dialog.super.call( this, { size: 'medium' } );
@@ -214,7 +215,19 @@ class AddMe {
 
 					return Dialog.super.prototype.getActionProcess( this, action );
 				} )
-				.next( () => this.close );
+				// FIXME: the promise from submit() is being returned in the above next(),
+				//   yet the block below that calls reloadContent() still gets called too early?
+				.next( () => 500 )
+				.next( () => {
+					if (action === 'submit') {
+						that.reloadContent()
+							.then( () => this.close() );
+					} else {
+						this.close();
+					}
+
+					return Dialog.super.prototype.getActionProcess( this, action );
+				} );
 		};
 
 		// Create and append a window manager, which opens and closes the dialog.
@@ -235,7 +248,6 @@ class AddMe {
 	 * @returns {JQueryDeferred}
 	 */
 	submit( comment, watch ) {
-		this.debug('submit()');
 		const dfd = $.Deferred();
 
 		// Cleanup the comment.
@@ -253,10 +265,7 @@ class AddMe {
 				}
 				dfd.reject( new OO.ui.Error( message || this.messages['error-save'] ) );
 			} )
-			.then( () => {
-				this.reloadContent();
-				dfd.resolve();
-			} );
+			.then( dfd.resolve );
 
 		return dfd;
 	}
@@ -265,6 +274,8 @@ class AddMe {
 	 * Reload the content on the page with the newly added comment.
 	 * Some of this was copied from Extension:DiscussionTools / controller.js
 	 *
+	 * @fixme This seems probably too heavy an operation for the end of the Wishlist Survey
+	 *   which can have up to 50+ large subpages transcluded on the same page.
 	 * @return {jQuery.Promise}
 	 */
 	reloadContent() {
@@ -278,7 +289,6 @@ class AddMe {
 			page: mw.config.get( 'wgRelevantPageName' ),
 			formatversion: 2,
 		} ).then( ( data ) => {
-			debugger;
 			// Actually replace the content.
 			this.$content.find( '.mw-parser-output' )
 				.first()
@@ -298,6 +308,18 @@ class AddMe {
 			} );
 
 			mw.hook( 'wikipage.content' ).fire( this.$content );
+
+			if ( OO.ui.isMobile() ) {
+				mw.notify( this.messages.feedback );
+			} else {
+				// postEdit is currently desktop only
+				mw.hook( 'postEdit' ).fire( {
+					message: this.messages.feedback
+				} );
+			}
+		} ).fail( () => {
+			// Comment was saved, but reloading failed. Redirect user to the (sub)page instead.
+			window.location = mw.util.getUrl( this.page );
 		} );
 	}
 
@@ -311,8 +333,6 @@ class AddMe {
 	 * @return {JQuery.Promise}
 	 */
 	updateSection( comment, watch, section, timestamp ) {
-		this.debug('updateSection()');
-
 		return this.api.postWithEditToken( {
 			action: 'edit',
 			title: this.config.page,
@@ -334,7 +354,6 @@ class AddMe {
 	 *   and the current server timestamp.
 	 */
 	findSection() {
-		this.debug('findSelection()');
 		const dfd = $.Deferred();
 
 		this.api.get( {
@@ -362,7 +381,6 @@ class AddMe {
 					return dfd.resolve( section, result.curtimestamp );
 				}
 
-				this.debug('Section not found');
 				dfd.reject(
 					new OO.ui.Error(
 						`The "${this.config['section-anchor']}" section is missing from [[${this.config.page}]]. ` +
@@ -416,22 +434,8 @@ class AddMe {
 	 * @return {string} The given message.
 	 */
 	log( message, level = 'error' ) {
-		if ( level === 'debug' && !this.debugMode ) {
-			return message;
-		}
 		console[level]( `[AddMe] ${message}` );
 		return message;
-	}
-
-	/**
-	 * Log a debug message to the console.
-	 * This relies on this.debugMode being set.
-	 *
-	 * @param {string} message
-	 * @return {string} The given message.
-	 */
-	debug( message ) {
-		return this.log( message, 'debug' );
 	}
 
 	/**
