@@ -23,6 +23,7 @@
     "eslint": "^8.14.0",
     "eslint-config-wikimedia": "^0.23.0",
     "mwn": "^1.0.0",
+    "oojs-ui": "^0.45.0",
     "uglify-js": "^3.9.1"
   }
 }

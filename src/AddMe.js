@@ -1,5 +1,6 @@
 /**
  * @class
+ * @property {jQuery} $content
  * @property {Array.<jQuery>} $buttons References to all the AddMe buttons on the page.
  * @property {mw.Api} api
  * @property {string} project Which key to use when loading the configuration and translations.
@@ -22,6 +23,8 @@ class AddMe {
 			return;
 		}
 
+		this.$content = $content;
+		this.debugMode = window.AddMeDebug;
 		this.api = new mw.Api();
 		this.project = null;
 		this.config = {
@@ -32,10 +35,12 @@ class AddMe {
 			// Maximum level of section to process; used to help prevent putting comments in the wrong
 			//   place if there are multiple sections with the same title.
 			'max-section-level': null,
-			// A template or other wikitext to prepend before the comment, such as a {{support}} template.
-			'prepend-template': null,
+			// Wikitext to prepend before the comment, such as a {{support}} template.
+			'prepend-content': '',
 			// Regular expression used to removed unwanted content from the comment (such as a {{support}} template).
 			'remove-content-regex': null,
+			// Edit summary to use.
+			'edit-summary': '',
 			// Where to link to when there are unrecoverable errors with the gadget or its configuration.
 			// FIXME: this hasn't been implemented yet; idea was to add a "Report" button to showError()
 			'error-report-page': 'Meta talk:AddMe',
@@ -46,24 +51,27 @@ class AddMe {
 		this.$buttons.on( 'click', ( e ) => {
 			this.project = e.target.dataset.addmeProject;
 			if ( !this.project ) {
-				return this.log( "Button is missing the 'data-addme-project' attribute." )
+				return this.showAlert(
+					this.log( "Button is missing the 'data-addme-project' attribute." )
+				);
 			}
 
 			this.config.page = this.config.page || e.target.dataset.addmePage
 				|| mw.config.get( 'wgPageName' );
 
 			this.fetchConfig()
-				.done( this.showDialog.bind( this ) )
-				.fail( this.showError.bind( this ) );
+				.then( this.showDialog.bind( this ) )
+				.fail( this.showAlert.bind( this ) );
 		} );
 	}
 
 	/**
 	 * Fetch the configuration and set the appropriate class properties.
 	 *
-	 * @returns {jQuery.<JQueryDeferred>}
+	 * @returns {JQueryDeferred}
 	 */
 	fetchConfig() {
+		this.debug('fetchConsole()');
 		const dfd = $.Deferred();
 
 		if ( this.messages && this.config.page ) {
@@ -92,6 +100,7 @@ class AddMe {
 			format: 'json',
 			formatversion: 2,
 		} ).then( ( resp ) => {
+			this.debug('fetchConsole then()');
 			let messagesLocal = {},
 				messagesEn = {};
 
@@ -147,7 +156,7 @@ class AddMe {
 		try {
 			return JSON.parse( content );
 		} catch {
-			this.showError(
+			this.showAlert(
 				`Unable to parse the configuration page [[${title}]]. ` +
 				'There may have been a recent change that contains invalid JSON.'
 			);
@@ -158,6 +167,7 @@ class AddMe {
 	 * Show the submission dialog.
 	 */
 	showDialog() {
+		this.debug('showDialog()');
 		const that = this;
 		const Dialog = function() {
 			Dialog.super.call( this, { size: 'medium' } );
@@ -198,9 +208,13 @@ class AddMe {
 			return Dialog.super.prototype.getActionProcess.call( this, action )
 				.next( () => {
 					if ( action === 'submit' ) {
+						that.debug('submitting form...');
 						return that.submit( this.textarea.getValue(), this.watchCheckbox.isSelected() );
 					}
-				} );
+
+					return Dialog.super.prototype.getActionProcess( this, action );
+				} )
+				.next( () => this.close );
 		};
 
 		// Create and append a window manager, which opens and closes the dialog.
@@ -218,24 +232,97 @@ class AddMe {
 	 *
 	 * @param {string} comment
 	 * @param {boolean} watch
-	 * @returns {jQuery.<JQueryDeferred>}
+	 * @returns {JQueryDeferred}
 	 */
 	submit( comment, watch ) {
+		this.debug('submit()');
 		const dfd = $.Deferred();
 
 		// Cleanup the comment.
-		comment = comment.replace( '~~~~', '' ).trim();
+		comment = comment.replace( '~~~~', '' );
 		if ( this.config['remove-content-regex'] ) {
-			comment = comment.replace( new RegExp( this.config['remove-content-regex'] ), '' ).trim();
+			comment = comment.replace( new RegExp( this.config['remove-content-regex'] ), '' );
 		}
+		comment = `\n${this.config['prepend-content']}${comment.trim()} ~~~~`;
 
-		if ( this.config['section-anchor'] ) {
-			this.findSection()
-				.done( dfd.resolve )
-				.fail( dfd.reject );
-		}
+		this.findSection()
+			.then( this.updateSection.bind( this, comment, watch ) )
+			.catch( ( message ) => {
+				if ( message.constructor.name === 'OoUiError' ) {
+					message = message.message;
+				}
+				dfd.reject( new OO.ui.Error( message || this.messages['error-save'] ) );
+			} )
+			.then( () => {
+				this.reloadContent();
+				dfd.resolve();
+			} );
 
 		return dfd;
+	}
+
+	/**
+	 * Reload the content on the page with the newly added comment.
+	 * Some of this was copied from Extension:DiscussionTools / controller.js
+	 *
+	 * @return {jQuery.Promise}
+	 */
+	reloadContent() {
+		return this.api.get( {
+			action: 'parse',
+			// HACK: we need 'useskin' so that reply links show (T266195)
+			useskin: mw.config.get( 'skin' ),
+			mobileformat: OO.ui.isMobile(),
+			uselang: mw.config.get( 'wgUserLanguage' ),
+			prop: [ 'text', 'revid' ],
+			page: mw.config.get( 'wgRelevantPageName' ),
+			formatversion: 2,
+		} ).then( ( data ) => {
+			debugger;
+			// Actually replace the content.
+			this.$content.find( '.mw-parser-output' )
+				.first()
+				.replaceWith( data.parse.text );
+
+			// Update revision ID for other gadgets that rely on it being accurate.
+			mw.config.set( {
+				wgCurRevisionId: data.parse.revid,
+				wgRevisionId: data.parse.revid
+			} );
+
+			// eslint-disable-next-line no-jquery/no-global-selector
+			$( '#t-permalink a, #coll-download-as-rl a' ).each( function () {
+				var url = new URL( this.href );
+				url.searchParams.set( 'oldid', data.parse.revid );
+				$( this ).attr( 'href', url.toString() );
+			} );
+
+			mw.hook( 'wikipage.content' ).fire( this.$content );
+		} );
+	}
+
+	/**
+	 * Add the comment to the given section.
+	 *
+	 * @param {string} comment
+	 * @param {boolean} watch
+	 * @param {Object} section
+	 * @param {string} timestamp
+	 * @return {JQuery.Promise}
+	 */
+	updateSection( comment, watch, section, timestamp ) {
+		this.debug('updateSection()');
+
+		return this.api.postWithEditToken( {
+			action: 'edit',
+			title: this.config.page,
+			section: section.number,
+			summary: this.config['edit-summary'],
+			starttimestamp: timestamp,
+			nocreate: true,
+			watchlist: watch ? 'watch' : 'nochange',
+			appendtext: comment,
+		} );
 	}
 
 	/**
@@ -243,9 +330,11 @@ class AddMe {
 	 * If no section header constraint is configured, we assume the final section.
 	 * If a section header is configured but not found, an error is shown to the user.
 	 *
-	 * @return {JQueryDeferred}
+	 * @return {JQueryDeferred.<Object,string>} Deferred promise resolving with section object
+	 *   and the current server timestamp.
 	 */
 	findSection() {
+		this.debug('findSelection()');
 		const dfd = $.Deferred();
 
 		this.api.get( {
@@ -254,9 +343,10 @@ class AddMe {
 			action: 'parse',
 			prop: 'sections',
 			page: this.config.page,
+			curtimestamp: true,
 			// FIXME: may not work if the source language page is not '/en'?
 			uselang: 'en',
-		} ).then( result => {
+		} ).done( ( result ) => {
 			const sections = result.parse.sections;
 			// Locate the section we're trying to edit.
 			let section;
@@ -268,33 +358,37 @@ class AddMe {
 					return section.anchor === this.config['section-anchor'] && withinMaxLevel
 				});
 
-				if ( !section ) {
-					return dfd.reject(
-						new OO.ui.Error(
-							`The "${this.config['section-anchor']}" section is missing from [[${this.config.page}]]. ` +
-							`Please correct this error or report this issue at [[${this.config['error-report-page']}]].`,
-							{ recoverable: false }
-						)
-					);
+				if ( section ) {
+					return dfd.resolve( section, result.curtimestamp );
 				}
+
+				this.debug('Section not found');
+				dfd.reject(
+					new OO.ui.Error(
+						`The "${this.config['section-anchor']}" section is missing from [[${this.config.page}]]. ` +
+						`Please correct this error or report this issue at [[${this.config['error-report-page']}]].`,
+						{ recoverable: false }
+					)
+				);
 			} else {
+				// If no section was configured, fallback to using the last section.
 				section = sections.at( -1 );
 			}
 
-			dfd.resolve( section );
-		} ).fail( ( errCode ) => {
-			let debugMsg = `There was an error when fetching section titles for [[${this.config.page}]].`,
+			dfd.resolve( section, result.curtimestamp );
+		} ).catch( ( response ) => {
+			let logMsg = `There was an error when fetching section titles for [[${this.config.page}]]`,
 				msg = 'error-save',
 				recoverable = true;
 
-			if ( errCode === 'missingtitle' ) {
-				debugMsg = `The page [[${this.config.page}]] is missing.`;
+			if ( response === 'missingtitle' ) {
+				logMsg = `The page [[${this.config.page}]] is missing.`;
 				msg = 'error-fatal';
 				recoverable = false;
 			}
 
-			this.log( debugMsg );
-			return dfd.reject(
+			this.log( logMsg );
+			dfd.reject(
 				new OO.ui.Error( this.messages[msg], { recoverable } )
 			);
 		} );
@@ -305,9 +399,9 @@ class AddMe {
 	/**
 	 * Show an error to the user using an OOUI alert dialog.
 	 *
-	 * @param {string} msg
+	 * @param {string|OO.ui.Error} msg
 	 */
-	showError( msg ) {
+	showAlert( msg ) {
 		OO.ui.alert(
 			`There was an error with the AddMe gadget: ${msg}\nPlease report this issue at [[${this.config["error-report-page"]}]].`,
 			{ title: 'Something went wrong' }
@@ -322,8 +416,22 @@ class AddMe {
 	 * @return {string} The given message.
 	 */
 	log( message, level = 'error' ) {
-		mw.log[level]( `[AddMe] ${message}` );
+		if ( level === 'debug' && !this.debugMode ) {
+			return message;
+		}
+		console[level]( `[AddMe] ${message}` );
 		return message;
+	}
+
+	/**
+	 * Log a debug message to the console.
+	 * This relies on this.debugMode being set.
+	 *
+	 * @param {string} message
+	 * @return {string} The given message.
+	 */
+	debug( message ) {
+		return this.log( message, 'debug' );
 	}
 
 	/**
