@@ -41,7 +41,6 @@ class AddMe {
 			// Edit summary to use.
 			'edit-summary': '',
 			// Where to link to when there are unrecoverable errors with the gadget or its configuration.
-			// FIXME: this hasn't been implemented yet; idea was to add a "Report" button to showError()
 			'error-report-page': 'Meta talk:AddMe',
 		};
 		this.messages = null;
