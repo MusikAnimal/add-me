@@ -5,7 +5,6 @@
  * @property {mw.Api} api
  * @property {string} project Which key to use when loading the configuration and translations.
  * @property {Array.<Object>} config Config fetched from AddMe.CONFIG_PAGE.
- * @property {string} userLang The user's interface language.
  * @property {Array.<Object>} messages The interface messages.
  */
 class AddMe {
@@ -28,23 +27,23 @@ class AddMe {
 		this.project = null;
 		this.config = {
 			// Which page to post the comment to. If null, it uses the current page.
-			'page': null,
+			page: null,
 			// The anchor of the section of the page to post the comment to.
 			'section-anchor': null,
-			// Maximum level of section to process; used to help prevent putting comments in the wrong
-			//   place if there are multiple sections with the same title.
+			// Maximum level of section to process; used to help prevent putting comments in the
+			//   wrong place if there are multiple sections with the same title.
 			'max-section-level': null,
 			// Wikitext to prepend before the comment, such as a {{support}} template.
 			'prepend-content': '',
-			// Regular expression used to removed unwanted content from the comment (such as a {{support}} template).
+			// Regular expression used to removed unwanted content from the comment
+			//   (such as a {{support}} template).
 			'remove-content-regex': null,
 			// Edit summary to use.
 			'edit-summary': '',
-			// Where to link to when there are unrecoverable errors with the gadget or its configuration.
-			'error-report-page': 'Meta talk:AddMe',
+			// Where to link to when there are unrecoverable errors.
+			'error-report-page': 'Meta talk:AddMe'
 		};
 		this.messages = null;
-		this.userLang = mw.config.get( 'wgUserLanguage' );
 
 		this.$buttons.on( 'click', ( e ) => {
 			this.project = e.target.dataset.addmeProject;
@@ -54,8 +53,8 @@ class AddMe {
 				);
 			}
 
-			this.config.page = this.config.page || e.target.dataset.addmePage
-				|| mw.config.get( 'wgPageName' );
+			this.config.page = this.config.page || e.target.dataset.addmePage ||
+				mw.config.get( 'wgPageName' );
 
 			this.fetchConfig()
 				.then( this.showDialog.bind( this ) )
@@ -71,7 +70,7 @@ class AddMe {
 	/**
 	 * Fetch the configuration and set the appropriate class properties.
 	 *
-	 * @returns {JQueryDeferred}
+	 * @return {jQuery.Deferred}
 	 */
 	fetchConfig() {
 		const dfd = $.Deferred();
@@ -82,13 +81,14 @@ class AddMe {
 		}
 
 		const langPageEn = `${AddMe.MESSAGES_PAGE}/en`,
-			langPageLocal = `${AddMe.MESSAGES_PAGE}/${this.userLang}`;
-		let titles = [
-			AddMe.CONFIG_PAGE,
-			// Always pull in the English so that we have fallbacks for each message. Payloads are small.
-			langPageEn,
-		];
-		if ( this.userLang !== 'en' ) {
+			langPageLocal = `${AddMe.MESSAGES_PAGE}/${mw.config.get( 'wgUserLanguage' )}`,
+			titles = [
+				AddMe.CONFIG_PAGE,
+				// Always fetch English so that we have fallbacks for each message.
+				// The payloads are small.
+				langPageEn
+			];
+		if ( mw.config.get( 'wgUserLanguage' ) !== 'en' ) {
 			// Fetch the translation in the user's language, if not English.
 			titles.push( langPageLocal );
 		}
@@ -100,40 +100,46 @@ class AddMe {
 			rvprop: 'content',
 			rvslots: 'main',
 			format: 'json',
-			formatversion: 2,
+			formatversion: 2
 		} ).then( ( resp ) => {
 			let messagesLocal = {},
 				messagesEn = {};
 
-			resp.query.pages.forEach( page => {
+			resp.query.pages.forEach( ( page ) => {
 				if ( page.missing ) {
-					switch (page.title) {
+					switch ( page.title ) {
 						case AddMe.CONFIG_PAGE:
 							dfd.reject(
-								this.log(`Missing configuration page [[${AddMe.CONFIG_PAGE}]]`)
-							)
+								this.log( `Missing configuration page [[${AddMe.CONFIG_PAGE}]]` )
+							);
 							break;
 						case langPageEn:
 							dfd.reject(
-								this.log(`Missing base language page [[${langPageEn}]]`)
+								this.log( `Missing base language page [[${langPageEn}]]` )
 							);
 							break;
 						case langPageLocal:
-							this.log(`Localization for '${this.userLang}' missing at [[${langPageLocal}]]`, 'warn');
+							this.log( `Localization for '${mw.config.get( 'wgUserLanguage' )}' missing at [[${langPageLocal}]]`, 'warn' );
 							break;
 					}
 				} else {
-					const pageObj = page.revisions[0].slots.main;
+					const pageObj = page.revisions[ 0 ].slots.main;
 					if ( pageObj.contentmodel === 'json' ) {
 						// We know it's the config page.
 						this.config = Object.assign(
 							this.config,
-							this.parseJSON( page.title, pageObj.content )[this.project]
+							this.parseJSON( page.title, pageObj.content )[ this.project ]
 						);
-					} else if ( page.title === langPageLocal && this.userLang !== 'en' ) {
-						messagesLocal = this.parseJSON( page.title, pageObj.content ).messages[this.project];
+					} else if ( page.title === langPageLocal && mw.config.get( 'wgUserLanguage' ) !== 'en' ) {
+						messagesLocal = this.parseJSON(
+							page.title,
+							pageObj.content
+						).messages[ this.project ];
 					} else {
-						messagesEn = this.parseJSON( page.title, pageObj.content ).messages[this.project];
+						messagesEn = this.parseJSON(
+							page.title,
+							pageObj.content
+						).messages[ this.project ];
 					}
 				}
 			} );
@@ -146,12 +152,13 @@ class AddMe {
 	}
 
 	/**
-	 * The content model of the messages page is wikitext so that it can be used with Extension:Translate.
-	 * Consequently, it's easy to break things. This just does a try/catch and indicates the likely culprit.
+	 * The content model of the messages page is wikitext so that it can be used with
+	 * Extension:Translate. Consequently, it's easy to break things. This just does
+	 * a try/catch and indicates the likely culprit to the user.
 	 *
-	 * @param title
-	 * @param content
-	 * @return {object}
+	 * @param {string} title
+	 * @param {string} content
+	 * @return {Object}
 	 */
 	parseJSON( title, content ) {
 		try {
@@ -169,7 +176,7 @@ class AddMe {
 	 */
 	showDialog() {
 		const that = this;
-		const Dialog = function() {
+		const Dialog = function () {
 			Dialog.super.call( this, { size: 'medium' } );
 		};
 		OO.inheritClass( Dialog, OO.ui.ProcessDialog );
@@ -177,7 +184,7 @@ class AddMe {
 		Dialog.static.title = that.msg( 'title' );
 		Dialog.static.actions = [
 			{ action: 'submit', label: that.msg( 'submit' ), flags: [ 'primary', 'progressive' ] },
-			{ label: that.msg( 'cancel' ), flags: 'safe' },
+			{ label: that.msg( 'cancel' ), flags: 'safe' }
 		];
 		Dialog.prototype.initialize = function () {
 			Dialog.super.prototype.initialize.apply( this, arguments );
@@ -185,18 +192,18 @@ class AddMe {
 			this.content = new OO.ui.PanelLayout( { padded: true, expanded: false } );
 			this.content.$element.append( this.editFieldset.$element );
 			this.textarea = new OO.ui.MultilineTextInputWidget( {
-				placeholder: that.msg( 'placeholder-comment' ),
+				placeholder: that.msg( 'placeholder-comment' )
 			} );
 			this.watchCheckbox = new OO.ui.CheckboxInputWidget( { selected: false } );
 			const formElements = [
 				new OO.ui.FieldLayout( this.textarea, {
 					label: that.msg( 'description' ),
-					align: 'top',
+					align: 'top'
 				} ),
 				new OO.ui.FieldLayout( this.watchCheckbox, {
 					label: that.msg( 'watch-page' ),
-					align: 'inline',
-				} ),
+					align: 'inline'
+				} )
 			];
 			this.editFieldset.addItems( formElements );
 			this.content.$element.append(
@@ -208,8 +215,9 @@ class AddMe {
 			return Dialog.super.prototype.getActionProcess.call( this, action )
 				.next( () => {
 					if ( action === 'submit' ) {
-						that.debug('submitting form...');
-						return that.submit( this.textarea.getValue(), this.watchCheckbox.isSelected() );
+						return that.submit(
+							this.textarea.getValue(), this.watchCheckbox.isSelected()
+						);
 					}
 
 					return Dialog.super.prototype.getActionProcess( this, action );
@@ -218,7 +226,7 @@ class AddMe {
 				//   yet the block below that calls reloadContent() still gets called too early?
 				.next( () => 500 )
 				.next( () => {
-					if (action === 'submit') {
+					if ( action === 'submit' ) {
 						that.reloadContent()
 							.then( () => this.close() );
 					} else {
@@ -244,17 +252,17 @@ class AddMe {
 	 *
 	 * @param {string} comment
 	 * @param {boolean} watch
-	 * @returns {JQueryDeferred}
+	 * @return {jQuery.Deferred}
 	 */
 	submit( comment, watch ) {
 		const dfd = $.Deferred();
 
 		// Cleanup the comment.
 		comment = comment.replace( '~~~~', '' );
-		if ( this.config['remove-content-regex'] ) {
-			comment = comment.replace( new RegExp( this.config['remove-content-regex'] ), '' );
+		if ( this.config[ 'remove-content-regex' ] ) {
+			comment = comment.replace( new RegExp( this.config[ 'remove-content-regex' ] ), '' );
 		}
-		comment = `\n${this.config['prepend-content']}${comment.trim()} ~~~~`;
+		comment = `\n${this.config[ 'prepend-content' ]}${comment.trim()} ~~~~`;
 
 		this.findSection()
 			.then( this.updateSection.bind( this, comment, watch ) )
@@ -262,7 +270,7 @@ class AddMe {
 				if ( message.constructor.name === 'OoUiError' ) {
 					message = message.message;
 				}
-				dfd.reject( new OO.ui.Error( message || this.messages['error-save'] ) );
+				dfd.reject( new OO.ui.Error( message || this.messages[ 'error-save' ] ) );
 			} )
 			.then( dfd.resolve );
 
@@ -273,8 +281,9 @@ class AddMe {
 	 * Reload the content on the page with the newly added comment.
 	 * Some of this was copied from Extension:DiscussionTools / controller.js
 	 *
-	 * @fixme This seems probably too heavy an operation for the end of the Wishlist Survey
+	 * FIXME: This seems probably too heavy of an operation for the end of the Wishlist Survey
 	 *   which can have up to 50+ large subpages transcluded on the same page.
+	 *
 	 * @return {jQuery.Promise}
 	 */
 	reloadContent() {
@@ -286,7 +295,7 @@ class AddMe {
 			uselang: mw.config.get( 'wgUserLanguage' ),
 			prop: [ 'text', 'revid' ],
 			page: mw.config.get( 'wgRelevantPageName' ),
-			formatversion: 2,
+			formatversion: 2
 		} ).then( ( data ) => {
 			// Actually replace the content.
 			this.$content.find( '.mw-parser-output' )
@@ -301,7 +310,7 @@ class AddMe {
 
 			// eslint-disable-next-line no-jquery/no-global-selector
 			$( '#t-permalink a, #coll-download-as-rl a' ).each( function () {
-				var url = new URL( this.href );
+				const url = new URL( this.href );
 				url.searchParams.set( 'oldid', data.parse.revid );
 				$( this ).attr( 'href', url.toString() );
 			} );
@@ -329,18 +338,18 @@ class AddMe {
 	 * @param {boolean} watch
 	 * @param {Object} section
 	 * @param {string} timestamp
-	 * @return {JQuery.Promise}
+	 * @return {jQuery.Promise}
 	 */
 	updateSection( comment, watch, section, timestamp ) {
 		return this.api.postWithEditToken( {
 			action: 'edit',
 			title: this.config.page,
 			section: section.number,
-			summary: this.config['edit-summary'],
+			summary: this.config[ 'edit-summary' ],
 			starttimestamp: timestamp,
 			nocreate: true,
 			watchlist: watch ? 'watch' : 'nochange',
-			appendtext: comment,
+			appendtext: comment
 		} );
 	}
 
@@ -349,7 +358,7 @@ class AddMe {
 	 * If no section header constraint is configured, we assume the final section.
 	 * If a section header is configured but not found, an error is shown to the user.
 	 *
-	 * @return {JQueryDeferred.<Object,string>} Deferred promise resolving with section object
+	 * @return {jQuery.Deferred<Object,string>} Deferred promise resolving with section object
 	 *   and the current server timestamp.
 	 */
 	findSection() {
@@ -363,18 +372,19 @@ class AddMe {
 			page: this.config.page,
 			curtimestamp: true,
 			// FIXME: may not work if the source language page is not '/en'?
-			uselang: 'en',
+			uselang: 'en'
 		} ).done( ( result ) => {
 			const sections = result.parse.sections;
 			// Locate the section we're trying to edit.
 			let section;
-			if ( this.config['section-anchor'] ) {
+			if ( this.config[ 'section-anchor' ] ) {
+				// eslint-disable-next-line no-shadow
 				section = sections.find( ( section ) => {
-					const withinMaxLevel = this.config['max-section-level'] ?
-						section.toclevel <= this.config['max-section-level'] :
+					const withinMaxLevel = this.config[ 'max-section-level' ] ?
+						section.toclevel <= this.config[ 'max-section-level' ] :
 						true;
-					return section.anchor === this.config['section-anchor'] && withinMaxLevel
-				});
+					return section.anchor === this.config[ 'section-anchor' ] && withinMaxLevel;
+				} );
 
 				if ( section ) {
 					return dfd.resolve( section, result.curtimestamp );
@@ -382,14 +392,14 @@ class AddMe {
 
 				dfd.reject(
 					new OO.ui.Error(
-						`The "${this.config['section-anchor']}" section is missing from [[${this.config.page}]]. ` +
-						`Please correct this error or report this issue at [[${this.config['error-report-page']}]].`,
+						`The "${this.config[ 'section-anchor' ]}" section is missing from [[${this.config.page}]]. ` +
+						`Please correct this error or report this issue at [[${this.config[ 'error-report-page' ]}]].`,
 						{ recoverable: false }
 					)
 				);
 			} else {
 				// If no section was configured, fallback to using the last section.
-				section = sections.at( -1 );
+				section = sections[ sections.length - 1 ];
 			}
 
 			dfd.resolve( section, result.curtimestamp );
@@ -406,7 +416,7 @@ class AddMe {
 
 			this.log( logMsg );
 			dfd.reject(
-				new OO.ui.Error( this.messages[msg], { recoverable } )
+				new OO.ui.Error( this.messages[ msg ], { recoverable } )
 			);
 		} );
 
@@ -420,7 +430,7 @@ class AddMe {
 	 */
 	showAlert( msg ) {
 		OO.ui.alert(
-			`There was an error with the AddMe gadget: ${msg}\nPlease report this issue at [[${this.config["error-report-page"]}]].`,
+			`There was an error with the AddMe gadget: ${msg}\nPlease report this issue at [[${this.config[ 'error-report-page' ]}]].`,
 			{ title: 'Something went wrong' }
 		);
 	}
@@ -433,7 +443,8 @@ class AddMe {
 	 * @return {string} The given message.
 	 */
 	log( message, level = 'error' ) {
-		console[level]( `[AddMe] ${message}` );
+		// eslint-disable-next-line no-console
+		console[ level ]( `[AddMe] ${message}` );
 		return message;
 	}
 
@@ -444,7 +455,7 @@ class AddMe {
 	 * @return {string}
 	 */
 	msg( key ) {
-		return this.messages[key];
+		return this.messages[ key ];
 	}
 }
 
@@ -453,15 +464,16 @@ class AddMe {
  *
  * @param {jQuery} $content
  */
+// eslint-disable-next-line no-implicit-globals
 function init( $content ) {
 	Promise.all( [
 		// Resource loader modules
 		mw.loader.using( [ 'oojs-ui', 'mediawiki.util', 'mediawiki.api', 'mediawiki.Title' ] ),
 		// Page ready
 		$.ready
-	]).then( () => {
+	] ).then( () => {
 		new AddMe( $content );
-	});
+	} );
 }
 
 mw.hook( 'wikipage.content' ).add( init );

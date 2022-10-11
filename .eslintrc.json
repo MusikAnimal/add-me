@@ -1,7 +1,17 @@
 {
+    "rules": {
+        "compat/compat": 0,
+        "es-x/no-optional-catch-binding": 0,
+        "es-x/no-class-fields": 0,
+        "no-new": 0,
+        "no-shadow": [ "error", { "ignoreOnInitialization": false } ]
+    },
     "extends": [
         "wikimedia/client-es6",
         "wikimedia/mediawiki",
         "wikimedia/jquery"
-    ]
+    ],
+    "parserOptions": {
+        "ecmaVersion": 2022
+    }
 }
