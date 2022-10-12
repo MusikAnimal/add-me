@@ -1,4 +1,7 @@
 # AddMe
+
+[![Node.js CI](https://github.com/MusikAnimal/add-me/actions/workflows/node.js.yml/badge.svg)](https://github.com/MusikAnimal/add-me/actions/workflows/node.js.yml)
+
 MediaWiki gadget that allows users to join/endorse a proposal, project, or idea.
 
 ## Usage
