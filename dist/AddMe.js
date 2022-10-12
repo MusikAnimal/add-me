@@ -16,7 +16,6 @@ function _defineProperty(obj, key, value) { if (key in obj) { Object.definePrope
  * @property {mw.Api} api
  * @property {string} project Which key to use when loading the configuration and translations.
  * @property {Array.<Object>} config Config fetched from AddMe.CONFIG_PAGE.
- * @property {string} userLang The user's interface language.
  * @property {Array.<Object>} messages The interface messages.
  */
 var AddMe = /*#__PURE__*/function () {
@@ -40,23 +39,23 @@ var AddMe = /*#__PURE__*/function () {
     this.project = null;
     this.config = {
       // Which page to post the comment to. If null, it uses the current page.
-      'page': null,
+      page: null,
       // The anchor of the section of the page to post the comment to.
       'section-anchor': null,
-      // Maximum level of section to process; used to help prevent putting comments in the wrong
-      //   place if there are multiple sections with the same title.
+      // Maximum level of section to process; used to help prevent putting comments in the
+      //   wrong place if there are multiple sections with the same title.
       'max-section-level': null,
       // Wikitext to prepend before the comment, such as a {{support}} template.
       'prepend-content': '',
-      // Regular expression used to removed unwanted content from the comment (such as a {{support}} template).
+      // Regular expression used to removed unwanted content from the comment
+      //   (such as a {{support}} template).
       'remove-content-regex': null,
       // Edit summary to use.
       'edit-summary': '',
-      // Where to link to when there are unrecoverable errors with the gadget or its configuration.
+      // Where to link to when there are unrecoverable errors.
       'error-report-page': 'Meta talk:AddMe'
     };
     this.messages = null;
-    this.userLang = mw.config.get('wgUserLanguage');
     this.$buttons.on('click', function (e) {
       _this.project = e.target.dataset.addmeProject;
 
@@ -77,7 +76,7 @@ var AddMe = /*#__PURE__*/function () {
   /**
    * Fetch the configuration and set the appropriate class properties.
    *
-   * @returns {JQueryDeferred}
+   * @return {jQuery.Deferred}
    */
 
 
@@ -94,11 +93,12 @@ var AddMe = /*#__PURE__*/function () {
       }
 
       var langPageEn = "".concat(AddMe.MESSAGES_PAGE, "/en"),
-          langPageLocal = "".concat(AddMe.MESSAGES_PAGE, "/").concat(this.userLang);
-      var titles = [AddMe.CONFIG_PAGE, // Always pull in the English so that we have fallbacks for each message. Payloads are small.
+          langPageLocal = "".concat(AddMe.MESSAGES_PAGE, "/").concat(mw.config.get('wgUserLanguage')),
+          titles = [AddMe.CONFIG_PAGE, // Always fetch English so that we have fallbacks for each message.
+      // The payloads are small.
       langPageEn];
 
-      if (this.userLang !== 'en') {
+      if (mw.config.get('wgUserLanguage') !== 'en') {
         // Fetch the translation in the user's language, if not English.
         titles.push(langPageLocal);
       }
@@ -126,7 +126,7 @@ var AddMe = /*#__PURE__*/function () {
                 break;
 
               case langPageLocal:
-                _this2.log("Localization for '".concat(_this2.userLang, "' missing at [[").concat(langPageLocal, "]]"), 'warn');
+                _this2.log("Localization for '".concat(mw.config.get('wgUserLanguage'), "' missing at [[").concat(langPageLocal, "]]"), 'warn');
 
                 break;
             }
@@ -136,7 +136,7 @@ var AddMe = /*#__PURE__*/function () {
             if (pageObj.contentmodel === 'json') {
               // We know it's the config page.
               _this2.config = Object.assign(_this2.config, _this2.parseJSON(page.title, pageObj.content)[_this2.project]);
-            } else if (page.title === langPageLocal && _this2.userLang !== 'en') {
+            } else if (page.title === langPageLocal && mw.config.get('wgUserLanguage') !== 'en') {
               messagesLocal = _this2.parseJSON(page.title, pageObj.content).messages[_this2.project];
             } else {
               messagesEn = _this2.parseJSON(page.title, pageObj.content).messages[_this2.project];
@@ -149,12 +149,13 @@ var AddMe = /*#__PURE__*/function () {
       return dfd;
     }
     /**
-     * The content model of the messages page is wikitext so that it can be used with Extension:Translate.
-     * Consequently, it's easy to break things. This just does a try/catch and indicates the likely culprit.
+     * The content model of the messages page is wikitext so that it can be used with
+     * Extension:Translate. Consequently, it's easy to break things. This just does
+     * a try/catch and indicates the likely culprit to the user.
      *
-     * @param title
-     * @param content
-     * @return {object}
+     * @param {string} title
+     * @param {string} content
+     * @return {Object}
      */
 
   }, {
@@ -224,7 +225,6 @@ var AddMe = /*#__PURE__*/function () {
 
         return Dialog["super"].prototype.getActionProcess.call(this, action).next(function () {
           if (action === 'submit') {
-            that.debug('submitting form...');
             return that.submit(_this3.textarea.getValue(), _this3.watchCheckbox.isSelected());
           }
 
@@ -259,7 +259,7 @@ var AddMe = /*#__PURE__*/function () {
      *
      * @param {string} comment
      * @param {boolean} watch
-     * @returns {JQueryDeferred}
+     * @return {jQuery.Deferred}
      */
 
   }, {
@@ -289,8 +289,9 @@ var AddMe = /*#__PURE__*/function () {
      * Reload the content on the page with the newly added comment.
      * Some of this was copied from Extension:DiscussionTools / controller.js
      *
-     * @fixme This seems probably too heavy an operation for the end of the Wishlist Survey
+     * FIXME: This seems probably too heavy of an operation for the end of the Wishlist Survey
      *   which can have up to 50+ large subpages transcluded on the same page.
+     *
      * @return {jQuery.Promise}
      */
 
@@ -345,7 +346,7 @@ var AddMe = /*#__PURE__*/function () {
      * @param {boolean} watch
      * @param {Object} section
      * @param {string} timestamp
-     * @return {JQuery.Promise}
+     * @return {jQuery.Promise}
      */
 
   }, {
@@ -367,7 +368,7 @@ var AddMe = /*#__PURE__*/function () {
      * If no section header constraint is configured, we assume the final section.
      * If a section header is configured but not found, an error is shown to the user.
      *
-     * @return {JQueryDeferred.<Object,string>} Deferred promise resolving with section object
+     * @return {jQuery.Deferred<Object,string>} Deferred promise resolving with section object
      *   and the current server timestamp.
      */
 
@@ -392,6 +393,7 @@ var AddMe = /*#__PURE__*/function () {
         var section;
 
         if (_this6.config['section-anchor']) {
+          // eslint-disable-next-line no-shadow
           section = sections.find(function (section) {
             var withinMaxLevel = _this6.config['max-section-level'] ? section.toclevel <= _this6.config['max-section-level'] : true;
             return section.anchor === _this6.config['section-anchor'] && withinMaxLevel;
@@ -406,7 +408,7 @@ var AddMe = /*#__PURE__*/function () {
           }));
         } else {
           // If no section was configured, fallback to using the last section.
-          section = sections.at(-1);
+          section = sections[sections.length - 1];
         }
 
         dfd.resolve(section, result.curtimestamp);
@@ -438,7 +440,7 @@ var AddMe = /*#__PURE__*/function () {
   }, {
     key: "showAlert",
     value: function showAlert(msg) {
-      OO.ui.alert("There was an error with the AddMe gadget: ".concat(msg, "\nPlease report this issue at [[").concat(this.config["error-report-page"], "]]."), {
+      OO.ui.alert("There was an error with the AddMe gadget: ".concat(msg, "\nPlease report this issue at [[").concat(this.config['error-report-page'], "]]."), {
         title: 'Something went wrong'
       });
     }
@@ -454,6 +456,7 @@ var AddMe = /*#__PURE__*/function () {
     key: "log",
     value: function log(message) {
       var level = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'error';
+      // eslint-disable-next-line no-console
       console[level]("[AddMe] ".concat(message));
       return message;
     }
@@ -478,6 +481,7 @@ var AddMe = /*#__PURE__*/function () {
  *
  * @param {jQuery} $content
  */
+// eslint-disable-next-line no-implicit-globals
 
 
 _defineProperty(AddMe, "CONFIG_PAGE", 'User:MusikAnimal/AddMe-config');
