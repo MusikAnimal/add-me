@@ -212,36 +212,21 @@ class AddMe {
 			this.$body.append( this.content.$element );
 		};
 		Dialog.prototype.getActionProcess = function ( action ) {
-			return Dialog.super.prototype.getActionProcess.call( this, action )
-				.next( () => {
-					if ( action === 'submit' ) {
-						return that.submit(
-							this.textarea.getValue(), this.watchCheckbox.isSelected()
-						);
-					}
-
-					return Dialog.super.prototype.getActionProcess( this, action );
-				} )
-				// FIXME: the promise from submit() is being returned in the above next(),
-				//   yet the block below that calls reloadContent() still gets called too early?
-				.next( () => 500 )
-				.next( () => {
-					if ( action === 'submit' ) {
-						that.reloadContent()
-							.then( () => this.close() );
-					} else {
-						this.close();
-					}
-
-					return Dialog.super.prototype.getActionProcess( this, action );
+			const actionProcess = Dialog.super.prototype.getActionProcess.call( this, action );
+			if ( action === 'submit' ) {
+				actionProcess.next( () => {
+					return that.submit( this.textarea.getValue(), this.watchCheckbox.isSelected() )
+						.then( that.reloadContent.bind( that ) );
 				} );
+			}
+			return actionProcess.next( this.close.bind( this ) );
 		};
 
-		// Create and append a window manager, which opens and closes the dialog.
-		const windowManager = new OO.ui.WindowManager();
-		$( document.body ).append( windowManager.$element );
+		// Get the OOUI window manager, which opens and closes the dialog.
+		const windowManager = OO.ui.getWindowManager();
 
 		// Instantiate and show the dialog.
+		// @todo Create and append only a single dialog, and re-use it.
 		const addMeDialog = new Dialog();
 		windowManager.addWindows( [ addMeDialog ] );
 		windowManager.openWindow( addMeDialog );
