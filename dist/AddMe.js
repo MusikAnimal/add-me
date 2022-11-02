@@ -223,15 +223,23 @@ var AddMe = /*#__PURE__*/function () {
       Dialog.prototype.getActionProcess = function (action) {
         var _this3 = this;
 
-        var actionProcess = Dialog["super"].prototype.getActionProcess.call(this, action);
+        return Dialog["super"].prototype.getActionProcess.call(this, action).next(function () {
+          if (action === 'submit') {
+            return that.submit(_this3.textarea.getValue(), _this3.watchCheckbox.isSelected());
+          }
 
-        if (action === 'submit') {
-          actionProcess.next(function () {
-            return that.submit(_this3.textarea.getValue(), _this3.watchCheckbox.isSelected()).then(that.reloadContent.bind(that));
-          });
-        }
+          return Dialog["super"].prototype.getActionProcess(_this3, action);
+        }).next(function () {
+          if (action === 'submit') {
+            that.purgePage().then(that.reloadContent.bind(that)).then(function () {
+              _this3.close({
+                action: action
+              });
+            });
+          }
 
-        return actionProcess.next(this.close.bind(this));
+          return Dialog["super"].prototype.getActionProcess(_this3, action);
+        });
       }; // Get the OOUI window manager, which opens and closes the dialog.
 
 
@@ -274,6 +282,26 @@ var AddMe = /*#__PURE__*/function () {
       return dfd;
     }
     /**
+     * Purge the contents of the page. This is necessary when the comment
+     * was added to a transcluded page.
+     *
+     * @return {jQuery.Deferred|jQuery.Promise}
+     */
+
+  }, {
+    key: "purgePage",
+    value: function purgePage() {
+      if (this.config.page === mw.config.get('wgPageName')) {
+        // We're on the same page as the comment is on, so no need to purge.
+        return $.Deferred().resolve();
+      }
+
+      return this.api.post({
+        action: 'purge',
+        titles: mw.config.get('wgPageName')
+      });
+    }
+    /**
      * Reload the content on the page with the newly added comment.
      * Some of this was copied from Extension:DiscussionTools / controller.js
      *
@@ -295,7 +323,7 @@ var AddMe = /*#__PURE__*/function () {
         mobileformat: OO.ui.isMobile(),
         uselang: mw.config.get('wgUserLanguage'),
         prop: ['text', 'revid'],
-        page: mw.config.get('wgRelevantPageName'),
+        page: mw.config.get('wgPageName'),
         formatversion: 2
       }).then(function (data) {
         // Actually replace the content.

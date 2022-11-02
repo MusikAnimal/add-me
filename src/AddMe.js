@@ -212,14 +212,28 @@ class AddMe {
 			this.$body.append( this.content.$element );
 		};
 		Dialog.prototype.getActionProcess = function ( action ) {
-			const actionProcess = Dialog.super.prototype.getActionProcess.call( this, action );
-			if ( action === 'submit' ) {
-				actionProcess.next( () => {
-					return that.submit( this.textarea.getValue(), this.watchCheckbox.isSelected() )
-						.then( that.reloadContent.bind( that ) );
+			return Dialog.super.prototype.getActionProcess.call( this, action )
+				.next( () => {
+					if ( action === 'submit' ) {
+						return that.submit(
+							this.textarea.getValue(),
+							this.watchCheckbox.isSelected()
+						);
+					}
+
+					return Dialog.super.prototype.getActionProcess( this, action );
+				} )
+				.next( () => {
+					if ( action === 'submit' ) {
+						that.purgePage()
+							.then( that.reloadContent.bind( that ) )
+							.then( () => {
+								this.close( { action } );
+							} );
+					}
+
+					return Dialog.super.prototype.getActionProcess( this, action );
 				} );
-			}
-			return actionProcess.next( this.close.bind( this ) );
 		};
 
 		// Get the OOUI window manager, which opens and closes the dialog.
@@ -263,6 +277,24 @@ class AddMe {
 	}
 
 	/**
+	 * Purge the contents of the page. This is necessary when the comment
+	 * was added to a transcluded page.
+	 *
+	 * @return {jQuery.Deferred|jQuery.Promise}
+	 */
+	purgePage() {
+		if ( this.config.page === mw.config.get( 'wgPageName' ) ) {
+			// We're on the same page as the comment is on, so no need to purge.
+			return $.Deferred().resolve();
+		}
+
+		return this.api.post( {
+			action: 'purge',
+			titles: mw.config.get( 'wgPageName' )
+		} );
+	}
+
+	/**
 	 * Reload the content on the page with the newly added comment.
 	 * Some of this was copied from Extension:DiscussionTools / controller.js
 	 *
@@ -279,7 +311,7 @@ class AddMe {
 			mobileformat: OO.ui.isMobile(),
 			uselang: mw.config.get( 'wgUserLanguage' ),
 			prop: [ 'text', 'revid' ],
-			page: mw.config.get( 'wgRelevantPageName' ),
+			page: mw.config.get( 'wgPageName' ),
 			formatversion: 2
 		} ).then( ( data ) => {
 			// Actually replace the content.
